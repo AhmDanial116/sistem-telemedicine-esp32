@@ -51,15 +51,38 @@ class MeasurementController extends BaseController
     public function upload(): ResponseInterface
     {
         try {
-            $payload = $this->request->getJSON(true);
+            $rawBody = $this->request->getBody();
 
-            if (! is_array($payload)) {
+            log_message(
+                'error',
+                'MEASUREMENT RAW BODY length={length} body={body}',
+                [
+                    'length' => strlen($rawBody),
+                    'body'   => $rawBody,
+                ]
+            );
+
+            $rawBody = trim(
+                $rawBody,
+                "\xEF\xBB\xBF\x00\x09\x0A\x0D\x20"
+            );
+
+            $payload = json_decode($rawBody, true);
+
+            if (
+                json_last_error() !== JSON_ERROR_NONE
+                || ! is_array($payload)
+            ) {
                 return $this->apiResponse(
                     false,
-                    'Body request harus berupa JSON.',
+                    'Body request JSON tidak dapat dibaca.',
                     null,
                     [
-                        'body' => 'JSON tidak valid atau kosong.',
+                        'json_error' => json_last_error_msg(),
+                        'body_length' => strlen($rawBody),
+                        'raw_body' => ENVIRONMENT === 'development'
+                            ? $rawBody
+                            : null,
                     ],
                     400
                 );

@@ -27,7 +27,7 @@ class IdentificationController extends BaseController
     /**
      * Halaman identifikasi utama.
      */
-    public function index(): string
+    public function index(): string|\CodeIgniter\HTTP\RedirectResponse
     {
         /*
          * Pengguna yang sudah teridentifikasi langsung
@@ -37,20 +37,17 @@ class IdentificationController extends BaseController
 
         if ($role === 'patient') {
             return redirect()
-                ->to('/patient/dashboard')
-                ->send();
+                ->to('/patient/dashboard');
         }
 
         if ($role === 'doctor') {
             return redirect()
-                ->to('/doctor/dashboard')
-                ->send();
+                ->to('/doctor/dashboard');
         }
 
         if ($role === 'admin') {
             return redirect()
-                ->to('/admin/dashboard')
-                ->send();
+                ->to('/admin/dashboard');
         }
 
         return view('identification/index', [

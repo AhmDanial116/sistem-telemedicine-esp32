@@ -356,6 +356,13 @@ class MeasurementController extends BaseController
                 );
             }
 
+            // Hasil sudah berhasil tersimpan.
+            // Request harus dipindahkan ke status akhir agar
+            // dashboard pasien berhenti polling pada status proses.
+            $this->requestModel->markCompleted(
+                $requestId
+            );
+
             $firmwareVersion =
                 $this->request->getHeaderLine(
                     'X-Firmware-Version'

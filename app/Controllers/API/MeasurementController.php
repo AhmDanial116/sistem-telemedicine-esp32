@@ -51,19 +51,8 @@ class MeasurementController extends BaseController
     public function upload(): ResponseInterface
     {
         try {
-            $rawBody = $this->request->getBody();
-
-            log_message(
-                'error',
-                'MEASUREMENT RAW BODY length={length} body={body}',
-                [
-                    'length' => strlen($rawBody),
-                    'body'   => $rawBody,
-                ]
-            );
-
             $rawBody = trim(
-                $rawBody,
+                $this->request->getBody(),
                 "\xEF\xBB\xBF\x00\x09\x0A\x0D\x20"
             );
 
@@ -78,84 +67,29 @@ class MeasurementController extends BaseController
                     'Body request JSON tidak dapat dibaca.',
                     null,
                     [
-                        'json_error' => json_last_error_msg(),
-                        'body_length' => strlen($rawBody),
-                        'raw_body' => ENVIRONMENT === 'development'
-                            ? $rawBody
-                            : null,
+                        'json_error' =>
+                        json_last_error_msg(),
                     ],
                     400
                 );
             }
 
-            $requestId = isset($payload['request_id'])
+            $requestId =
+                isset($payload['request_id'])
                 ? (int) $payload['request_id']
                 : 0;
 
-            $deviceId = isset($payload['device_id'])
+            $deviceId =
+                isset($payload['device_id'])
                 ? trim((string) $payload['device_id'])
                 : '';
 
-            $systolic = $payload['systolic']
-                ?? $payload['sys']
-                ?? null;
-
-            $map = $payload['map'] ?? null;
-
-            $diastolic = $payload['diastolic']
-                ?? $payload['dia']
-                ?? null;
-
-            $bpm = $payload['bpm'] ?? null;
-
-            $beatCount = $payload['beat_count'] ?? null;
-
-            $baselineAdc = $payload['pressure_baseline_adc']
-                ?? $payload['baseline_adc']
-                ?? null;
-
-            $adcMax = $payload['adc_max'] ?? null;
-
-            $adcMin = $payload['adc_min'] ?? null;
-
-            $errors = [];
-
-            if ($requestId <= 0) {
-                $errors['request_id'] =
-                    'Request ID harus berupa angka positif.';
-            }
-
-            if ($deviceId === '') {
-                $errors['device_id'] =
-                    'Device ID wajib diisi.';
-            }
-
-            if (! is_numeric($systolic)) {
-                $errors['systolic'] =
-                    'Nilai sistolik wajib berupa angka.';
-            }
-
-            if (! is_numeric($map)) {
-                $errors['map'] =
-                    'Nilai MAP wajib berupa angka.';
-            }
-
-            if (! is_numeric($diastolic)) {
-                $errors['diastolic'] =
-                    'Nilai diastolik wajib berupa angka.';
-            }
-
-            if (! is_numeric($bpm)) {
-                $errors['bpm'] =
-                    'Nilai BPM wajib berupa angka.';
-            }
-
-            if ($errors !== []) {
+            if ($requestId <= 0 || $deviceId === '') {
                 return $this->apiResponse(
                     false,
-                    'Data hasil pengukuran tidak lengkap.',
+                    'Request ID dan Device ID wajib diisi.',
                     null,
-                    $errors,
+                    null,
                     422
                 );
             }
@@ -172,10 +106,7 @@ class MeasurementController extends BaseController
                     false,
                     'Format Device ID tidak valid.',
                     null,
-                    [
-                        'device_id' =>
-                        'Device ID harus terdiri dari 12 karakter huruf atau angka.',
-                    ],
+                    null,
                     422
                 );
             }
@@ -191,10 +122,7 @@ class MeasurementController extends BaseController
                     false,
                     'Perangkat tidak ditemukan atau tidak aktif.',
                     null,
-                    [
-                        'device_id' =>
-                        $normalizedDeviceId,
-                    ],
+                    null,
                     404
                 );
             }
@@ -204,10 +132,7 @@ class MeasurementController extends BaseController
                     false,
                     'Perangkat belum terhubung ke pasien.',
                     null,
-                    [
-                        'device_id' =>
-                        $normalizedDeviceId,
-                    ],
+                    null,
                     409
                 );
             }
@@ -221,9 +146,7 @@ class MeasurementController extends BaseController
                     false,
                     'Request pengukuran tidak ditemukan.',
                     null,
-                    [
-                        'request_id' => $requestId,
-                    ],
+                    null,
                     404
                 );
             }
@@ -231,30 +154,15 @@ class MeasurementController extends BaseController
             if (
                 (int) $request['device_record_id']
                 !== (int) $device['id']
-            ) {
-                return $this->apiResponse(
-                    false,
-                    'Request tidak sesuai dengan perangkat.',
-                    null,
-                    [
-                        'request_id' => $requestId,
-                        'device_id' => $normalizedDeviceId,
-                    ],
-                    403
-                );
-            }
-
-            if (
+                ||
                 (int) $request['patient_id']
                 !== (int) $device['patient_id']
             ) {
                 return $this->apiResponse(
                     false,
-                    'Request tidak sesuai dengan pasien perangkat.',
+                    'Request tidak sesuai dengan perangkat atau pasien.',
                     null,
-                    [
-                        'request_id' => $requestId,
-                    ],
+                    null,
                     403
                 );
             }
@@ -262,19 +170,122 @@ class MeasurementController extends BaseController
             if (
                 in_array(
                     $request['status'],
-                    ['completed', 'failed', 'expired', 'cancelled'],
+                    [
+                        'completed',
+                        'failed',
+                        'expired',
+                        'cancelled',
+                    ],
                     true
                 )
             ) {
                 return $this->apiResponse(
                     false,
                     'Request sudah berada pada status akhir.',
-                    [
-                        'request_id' => $requestId,
-                        'current_status' => $request['status'],
-                    ],
+                    null,
                     null,
                     409
+                );
+            }
+
+            $measurementType =
+                (string) (
+                    $request['measurement_type']
+                    ?? 'both'
+                );
+
+            $systolic =
+                isset($payload['systolic'])
+                && is_numeric($payload['systolic'])
+                ? (float) $payload['systolic']
+                : null;
+
+            $map =
+                isset($payload['map'])
+                && is_numeric($payload['map'])
+                ? (float) $payload['map']
+                : null;
+
+            $diastolic =
+                isset($payload['diastolic'])
+                && is_numeric($payload['diastolic'])
+                ? (float) $payload['diastolic']
+                : null;
+
+            $bpm =
+                isset($payload['bpm'])
+                && is_numeric($payload['bpm'])
+                ? (int) round(
+                    (float) $payload['bpm']
+                )
+                : null;
+
+            $hasAnyBloodPressure =
+                $systolic !== null
+                || $map !== null
+                || $diastolic !== null;
+
+            $hasBloodPressure =
+                $systolic !== null
+                && $map !== null
+                && $diastolic !== null;
+
+            $hasHeartRate =
+                $bpm !== null;
+
+            if (
+                $hasAnyBloodPressure
+                && ! $hasBloodPressure
+            ) {
+                return $this->apiResponse(
+                    false,
+                    'Data tekanan darah harus lengkap.',
+                    null,
+                    [
+                        'blood_pressure' =>
+                        'SYS, MAP, dan DIA harus dikirim bersama.',
+                    ],
+                    422
+                );
+            }
+
+            if (
+                $measurementType === 'heart_rate'
+                && ! $hasHeartRate
+            ) {
+                return $this->apiResponse(
+                    false,
+                    'Hasil denyut nadi belum tersedia.',
+                    null,
+                    null,
+                    422
+                );
+            }
+
+            if (
+                $measurementType === 'blood_pressure'
+                && ! $hasBloodPressure
+            ) {
+                return $this->apiResponse(
+                    false,
+                    'Hasil tekanan darah belum tersedia.',
+                    null,
+                    null,
+                    422
+                );
+            }
+
+            if (
+                $measurementType === 'both'
+                && ! $hasBloodPressure
+                && ! $hasHeartRate
+            ) {
+                return $this->apiResponse(
+                    false,
+                    'Tidak ada hasil pengukuran valid yang dapat disimpan.',
+                    null,
+                    null,
+                    422
                 );
             }
 
@@ -282,46 +293,53 @@ class MeasurementController extends BaseController
                 $this->measurementModel
                 ->saveMeasurement(
                     [
-                        'patient_id'
-                        => (int) $device['patient_id'],
+                        'patient_id' =>
+                        (int) $device['patient_id'],
 
-                        'device_record_id'
-                        => (int) $device['id'],
+                        'device_record_id' =>
+                        (int) $device['id'],
 
-                        'systolic'
-                        => (float) $systolic,
+                        'systolic' => $systolic,
+                        'map' => $map,
+                        'diastolic' => $diastolic,
+                        'bpm' => $bpm,
 
-                        'map'
-                        => (float) $map,
-
-                        'diastolic'
-                        => (float) $diastolic,
-
-                        'bpm'
-                        => (int) round((float) $bpm),
-
-                        'beat_count'
-                        => $beatCount !== null
-                            ? (int) $beatCount
+                        'beat_count' =>
+                        isset($payload['beat_count'])
+                            && is_numeric(
+                                $payload['beat_count']
+                            )
+                            ? (int) $payload['beat_count']
                             : null,
 
-                        'pressure_baseline_adc'
-                        => $baselineAdc !== null
-                            ? (int) $baselineAdc
+                        'pressure_baseline_adc' =>
+                        isset(
+                            $payload['pressure_baseline_adc']
+                        )
+                            && is_numeric(
+                                $payload['pressure_baseline_adc']
+                            )
+                            ? (int) $payload['pressure_baseline_adc']
                             : null,
 
-                        'adc_max'
-                        => $adcMax !== null
-                            ? (int) $adcMax
+                        'adc_max' =>
+                        isset($payload['adc_max'])
+                            && is_numeric(
+                                $payload['adc_max']
+                            )
+                            ? (int) $payload['adc_max']
                             : null,
 
-                        'adc_min'
-                        => $adcMin !== null
-                            ? (int) $adcMin
+                        'adc_min' =>
+                        isset($payload['adc_min'])
+                            && is_numeric(
+                                $payload['adc_min']
+                            )
+                            ? (int) $payload['adc_min']
                             : null,
 
-                        'measured_at'
-                        => date('Y-m-d H:i:s'),
+                        'measured_at' =>
+                        date('Y-m-d H:i:s'),
                     ],
                     $requestId
                 );
@@ -339,8 +357,7 @@ class MeasurementController extends BaseController
             }
 
             $firmwareVersion =
-                $this->request
-                ->getHeaderLine(
+                $this->request->getHeaderLine(
                     'X-Firmware-Version'
                 );
 
@@ -358,174 +375,108 @@ class MeasurementController extends BaseController
                     $result['measurement_id']
                 );
 
-            //--------------------------------------------------
-            // NOTIFIKASI HASIL ABNORMAL KEPADA DOKTER
-            //--------------------------------------------------
-
-            if ($measurement !== null) {
+            /*
+             * Notifikasi dashboard dokter tetap dibuat
+             * jika quality_status warning/invalid.
+             * Pesan disusun berdasarkan parameter yang tersedia.
+             */
+            if (
+                $measurement !== null
+                && in_array(
+                    $measurement['quality_status'],
+                    ['warning', 'invalid'],
+                    true
+                )
+            ) {
                 $patientId =
                     (int) $measurement['patient_id'];
 
-                $measurementId =
-                    (int) $measurement['id'];
+                $db = db_connect();
 
-                $qualityStatus =
-                    (string) (
-                        $measurement['quality_status']
-                        ?? 'valid'
-                    );
+                $patient = $db
+                    ->table('patients')
+                    ->select([
+                        'id',
+                        'patient_code',
+                        'name',
+                    ])
+                    ->where('id', $patientId)
+                    ->get()
+                    ->getRowArray();
 
-                /*
-     * Notifikasi hanya dibuat untuk hasil
-     * warning atau invalid.
-     */
+                $assignment = $db
+                    ->table('doctor_assignments')
+                    ->select('doctor_id')
+                    ->where('patient_id', $patientId)
+                    ->where('status', 'active')
+                    ->orderBy('assigned_at', 'DESC')
+                    ->get()
+                    ->getRowArray();
+
                 if (
-                    in_array(
-                        $qualityStatus,
-                        [
-                            'warning',
-                            'invalid',
-                        ],
-                        true
-                    )
+                    $patient !== null
+                    && $assignment !== null
                 ) {
-                    $db = db_connect();
-
-                    //--------------------------------------------------
-                    // Ambil identitas pasien
-                    //--------------------------------------------------
-
-                    $patient = $db
-                        ->table('patients')
-                        ->select([
-                            'id',
-                            'patient_code',
-                            'name',
-                        ])
-                        ->where('id', $patientId)
-                        ->get()
-                        ->getRowArray();
-
-                    //--------------------------------------------------
-                    // Cari dokter aktif yang menangani pasien
-                    //--------------------------------------------------
-
-                    $activeAssignment = $db
-                        ->table('doctor_assignments')
-                        ->select([
-                            'doctor_id',
-                            'patient_id',
-                        ])
-                        ->where(
-                            'patient_id',
-                            $patientId
-                        )
-                        ->where(
-                            'status',
-                            'active'
-                        )
-                        ->orderBy(
-                            'assigned_at',
-                            'DESC'
-                        )
-                        ->get()
-                        ->getRowArray();
+                    $parts = [];
 
                     if (
-                        $patient !== null
-                        && $activeAssignment !== null
+                        $measurement['systolic'] !== null
+                        && $measurement['diastolic'] !== null
                     ) {
-                        $patientName =
-                            (string) $patient['name'];
-
-                        $patientCode =
-                            (string) $patient['patient_code'];
-
-                        $systolicValue =
-                            (float) $measurement['systolic'];
-
-                        $diastolicValue =
-                            (float) $measurement['diastolic'];
-
-                        $bpmValue =
-                            (int) $measurement['bpm'];
-
-                        //--------------------------------------------------
-                        // Susun isi notifikasi
-                        //--------------------------------------------------
-
-                        if ($qualityStatus === 'invalid') {
-                            $notificationTitle =
-                                'Hasil Pengukuran Tidak Valid';
-
-                            $notificationMessage =
-                                sprintf(
-                                    '%s (%s) menghasilkan pengukuran yang tidak valid. Silakan lakukan pemeriksaan ulang.',
-                                    $patientName,
-                                    $patientCode
-                                );
-
-                            $notificationType =
-                                'danger';
-                        } else {
-                            $notificationTitle =
-                                'Hasil Pengukuran Perlu Perhatian';
-
-                            $notificationMessage =
-                                sprintf(
-                                    '%s (%s) memperoleh hasil %.2f/%.2f mmHg dengan denyut nadi %d BPM.',
-                                    $patientName,
-                                    $patientCode,
-                                    $systolicValue,
-                                    $diastolicValue,
-                                    $bpmValue
-                                );
-
-                            $notificationType =
-                                'warning';
-                        }
-
-                        //--------------------------------------------------
-                        // Simpan notifikasi dokter
-                        //--------------------------------------------------
-
-                        $notificationModel =
-                            new NotificationModel();
-
-                        $notificationModel
-                            ->createNotification([
-                                'recipient_role' =>
-                                'doctor',
-
-                                'recipient_id' =>
-                                (int) $activeAssignment['doctor_id'],
-
-                                'title' =>
-                                $notificationTitle,
-
-                                'message' =>
-                                $notificationMessage,
-
-                                'type' =>
-                                $notificationType,
-
-                                'reference_type' =>
-                                'measurement',
-
-                                'reference_id' =>
-                                $measurementId,
-
-                                'action_url' =>
-                                '/doctor/patient/'
-                                    . $patientId,
-
-                                'is_read' =>
-                                0,
-
-                                'read_at' =>
-                                null,
-                            ]);
+                        $parts[] = sprintf(
+                            'tekanan darah %.2f/%.2f mmHg',
+                            (float) $measurement['systolic'],
+                            (float) $measurement['diastolic']
+                        );
                     }
+
+                    if ($measurement['bpm'] !== null) {
+                        $parts[] = sprintf(
+                            'denyut nadi %d BPM',
+                            (int) $measurement['bpm']
+                        );
+                    }
+
+                    $notificationTitle =
+                        $measurement['quality_status']
+                        === 'invalid'
+                        ? 'Hasil Pengukuran Tidak Valid'
+                        : 'Hasil Pengukuran Perlu Perhatian';
+
+                    $notificationMessage = sprintf(
+                        '%s (%s) memperoleh %s.',
+                        (string) $patient['name'],
+                        (string) $patient['patient_code'],
+                        $parts !== []
+                            ? implode(' dan ', $parts)
+                            : 'hasil pengukuran yang perlu ditinjau'
+                    );
+
+                    $notificationModel =
+                        new NotificationModel();
+
+                    $notificationModel
+                        ->createNotification([
+                            'recipient_role' => 'doctor',
+                            'recipient_id' =>
+                            (int) $assignment['doctor_id'],
+                            'title' =>
+                            $notificationTitle,
+                            'message' =>
+                            $notificationMessage,
+                            'type' =>
+                            $measurement['quality_status']
+                                === 'invalid'
+                                ? 'danger'
+                                : 'warning',
+                            'reference_type' =>
+                            'measurement',
+                            'reference_id' =>
+                            (int) $measurement['id'],
+                            'action_url' =>
+                            '/doctor/patient/'
+                                . $patientId,
+                        ]);
                 }
             }
 
@@ -533,48 +484,23 @@ class MeasurementController extends BaseController
                 true,
                 'Hasil pengukuran berhasil disimpan.',
                 [
-                    'measurement' => [
-                        'measurement_id'
-                        => (int) $measurement['id'],
+                    'measurement_id' =>
+                    (int) $result['measurement_id'],
 
-                        'request_id'
-                        => (int) $measurement['request_id'],
+                    'request_id' =>
+                    $requestId,
 
-                        'device_id'
-                        => $normalizedDeviceId,
+                    'measurement_type' =>
+                    $measurementType,
 
-                        'patient_id'
-                        => (int) $measurement['patient_id'],
+                    'quality_status' =>
+                    $result['quality_status'],
 
-                        'systolic'
-                        => (float) $measurement['systolic'],
+                    'is_valid' =>
+                    $result['is_valid'],
 
-                        'map'
-                        => (float) $measurement['map'],
-
-                        'diastolic'
-                        => (float) $measurement['diastolic'],
-
-                        'bpm'
-                        => (int) $measurement['bpm'],
-
-                        'beat_count'
-                        => $measurement['beat_count'] !== null
-                            ? (int) $measurement['beat_count']
-                            : null,
-
-                        'quality_status'
-                        => $measurement['quality_status'],
-
-                        'is_valid'
-                        => (bool) $measurement['is_valid'],
-
-                        'failure_reason'
-                        => $measurement['failure_reason'],
-
-                        'measured_at'
-                        => $measurement['measured_at'],
-                    ],
+                    'failure_reason' =>
+                    $result['failure_reason'],
                 ],
                 null,
                 201
@@ -584,12 +510,12 @@ class MeasurementController extends BaseController
                 false,
                 'Terjadi kesalahan pada server.',
                 null,
-                [
-                    'exception' =>
-                    ENVIRONMENT === 'development'
-                        ? $exception->getMessage()
-                        : null,
-                ],
+                ENVIRONMENT === 'development'
+                    ? [
+                        'exception' =>
+                        $exception->getMessage(),
+                    ]
+                    : null,
                 500
             );
         }

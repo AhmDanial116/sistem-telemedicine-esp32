@@ -63,22 +63,22 @@ class MeasurementModel extends Model
 
         'systolic' => [
             'label' => 'Sistolik',
-            'rules' => 'required|decimal|greater_than_equal_to[40]|less_than_equal_to[300]',
+            'rules' => 'permit_empty|decimal|greater_than_equal_to[40]|less_than_equal_to[300]',
         ],
 
         'map' => [
             'label' => 'MAP',
-            'rules' => 'required|decimal|greater_than_equal_to[30]|less_than_equal_to[250]',
+            'rules' => 'permit_empty|decimal|greater_than_equal_to[30]|less_than_equal_to[250]',
         ],
 
         'diastolic' => [
             'label' => 'Diastolik',
-            'rules' => 'required|decimal|greater_than_equal_to[20]|less_than_equal_to[200]',
+            'rules' => 'permit_empty|decimal|greater_than_equal_to[20]|less_than_equal_to[200]',
         ],
 
         'bpm' => [
             'label' => 'BPM',
-            'rules' => 'required|integer|greater_than_equal_to[30]|less_than_equal_to[220]',
+            'rules' => 'permit_empty|integer|greater_than_equal_to[30]|less_than_equal_to[220]',
         ],
 
         'beat_count' => [
@@ -164,43 +164,61 @@ class MeasurementModel extends Model
      * Menentukan kualitas hasil secara otomatis.
      */
     public function evaluateQuality(
-        float $systolic,
-        float $map,
-        float $diastolic,
-        int $bpm,
-        ?int $beatCount = null
+        ?float $systolic,
+        ?float $map,
+        ?float $diastolic,
+        ?int $bpm,
+        ?int $beatCount = null,
+        string $measurementType = 'both'
     ): array {
         $reasons = [];
 
-        /*
-         * Urutan hasil osilometrik harus:
-         * SYS > MAP > DIA.
-         */
-        if (! ($systolic > $map && $map > $diastolic)) {
-            $reasons[] = 'sys_map_dia_order_invalid';
+        $hasBloodPressure =
+            $systolic !== null
+            && $map !== null
+            && $diastolic !== null;
+
+        $hasHeartRate =
+            $bpm !== null;
+
+        if (! $hasBloodPressure && ! $hasHeartRate) {
+            return [
+                'is_valid' => 0,
+                'quality_status' => 'invalid',
+                'failure_reason' => 'no_valid_measurement',
+            ];
         }
 
         /*
-         * Rentang teknis dasar, bukan diagnosis medis.
+         * Validasi teknis hanya dilakukan untuk
+         * parameter yang benar-benar tersedia.
          */
-        if ($systolic < 70 || $systolic > 250) {
-            $reasons[] = 'systolic_out_of_range';
+        if ($hasBloodPressure) {
+            if (! ($systolic > $map && $map > $diastolic)) {
+                $reasons[] = 'sys_map_dia_order_invalid';
+            }
+
+            if ($systolic < 70 || $systolic > 250) {
+                $reasons[] = 'systolic_out_of_range';
+            }
+
+            if ($map < 40 || $map > 200) {
+                $reasons[] = 'map_out_of_range';
+            }
+
+            if ($diastolic < 40 || $diastolic > 150) {
+                $reasons[] = 'diastolic_out_of_range';
+            }
+
+            if ($beatCount !== null && $beatCount < 5) {
+                $reasons[] = 'insufficient_beats';
+            }
         }
 
-        if ($map < 40 || $map > 200) {
-            $reasons[] = 'map_out_of_range';
-        }
-
-        if ($diastolic < 40 || $diastolic > 150) {
-            $reasons[] = 'diastolic_out_of_range';
-        }
-
-        if ($bpm < 40 || $bpm > 200) {
-            $reasons[] = 'bpm_out_of_range';
-        }
-
-        if ($beatCount !== null && $beatCount < 5) {
-            $reasons[] = 'insufficient_beats';
+        if ($hasHeartRate) {
+            if ($bpm < 40 || $bpm > 200) {
+                $reasons[] = 'bpm_out_of_range';
+            }
         }
 
         if ($reasons !== []) {
@@ -211,29 +229,54 @@ class MeasurementModel extends Model
             ];
         }
 
+        $warning = false;
+        $partialReason = null;
+
         /*
-         * Warning tidak berarti diagnosis.
-         * Hanya penanda agar dokter meninjau hasil.
+         * Warning medis hanya untuk parameter
+         * yang tersedia, bukan diagnosis.
          */
         if (
-            $systolic >= 140
-            || $diastolic >= 90
-            || $systolic < 90
-            || $diastolic < 60
-            || $bpm < 60
-            || $bpm > 100
+            $hasBloodPressure
+            && (
+                $systolic >= 140
+                || $diastolic >= 90
+                || $systolic < 90
+                || $diastolic < 60
+            )
         ) {
-            return [
-                'is_valid' => 1,
-                'quality_status' => 'warning',
-                'failure_reason' => null,
-            ];
+            $warning = true;
+        }
+
+        if (
+            $hasHeartRate
+            && ($bpm < 60 || $bpm > 100)
+        ) {
+            $warning = true;
+        }
+
+        /*
+         * Jika user memilih "both" namun hanya
+         * satu kelompok parameter berhasil,
+         * simpan hasil yang valid sebagai partial result.
+         */
+        if ($measurementType === 'both') {
+            if (! $hasBloodPressure && $hasHeartRate) {
+                $warning = true;
+                $partialReason =
+                    'partial_result_blood_pressure_unavailable';
+            } elseif ($hasBloodPressure && ! $hasHeartRate) {
+                $warning = true;
+                $partialReason =
+                    'partial_result_bpm_unavailable';
+            }
         }
 
         return [
             'is_valid' => 1,
-            'quality_status' => 'valid',
-            'failure_reason' => null,
+            'quality_status' =>
+            $warning ? 'warning' : 'valid',
+            'failure_reason' => $partialReason,
         ];
     }
 
@@ -247,6 +290,7 @@ class MeasurementModel extends Model
         $requestModel = new MeasurementRequestModel();
 
         $request = null;
+        $measurementType = 'both';
 
         if ($requestId !== null) {
             $request = $requestModel->find($requestId);
@@ -266,18 +310,18 @@ class MeasurementModel extends Model
                     'measurement_id' => null,
                 ];
             }
+
+            $measurementType =
+                (string) (
+                    $request['measurement_type']
+                    ?? 'both'
+                );
         }
 
-        $requiredFields = [
-            'patient_id',
-            'device_record_id',
-            'systolic',
-            'map',
-            'diastolic',
-            'bpm',
-        ];
-
-        foreach ($requiredFields as $field) {
+        foreach (
+            ['patient_id', 'device_record_id']
+            as $field
+        ) {
             if (! array_key_exists($field, $measurementData)) {
                 return [
                     'success' => false,
@@ -287,12 +331,88 @@ class MeasurementModel extends Model
             }
         }
 
-        $systolic = (float) $measurementData['systolic'];
-        $map = (float) $measurementData['map'];
-        $diastolic = (float) $measurementData['diastolic'];
-        $bpm = (int) $measurementData['bpm'];
+        $systolic =
+            isset($measurementData['systolic'])
+            && $measurementData['systolic'] !== ''
+            ? (float) $measurementData['systolic']
+            : null;
 
-        $beatCount = isset($measurementData['beat_count'])
+        $map =
+            isset($measurementData['map'])
+            && $measurementData['map'] !== ''
+            ? (float) $measurementData['map']
+            : null;
+
+        $diastolic =
+            isset($measurementData['diastolic'])
+            && $measurementData['diastolic'] !== ''
+            ? (float) $measurementData['diastolic']
+            : null;
+
+        $bpm =
+            isset($measurementData['bpm'])
+            && $measurementData['bpm'] !== ''
+            ? (int) $measurementData['bpm']
+            : null;
+
+        $hasAnyBloodPressure =
+            $systolic !== null
+            || $map !== null
+            || $diastolic !== null;
+
+        $hasBloodPressure =
+            $systolic !== null
+            && $map !== null
+            && $diastolic !== null;
+
+        $hasHeartRate =
+            $bpm !== null;
+
+        if ($hasAnyBloodPressure && ! $hasBloodPressure) {
+            return [
+                'success' => false,
+                'message' => 'Data tekanan darah harus berisi SYS, MAP, dan DIA secara lengkap.',
+                'measurement_id' => null,
+            ];
+        }
+
+        if (
+            $measurementType === 'heart_rate'
+            && ! $hasHeartRate
+        ) {
+            return [
+                'success' => false,
+                'message' => 'Hasil denyut nadi wajib tersedia.',
+                'measurement_id' => null,
+            ];
+        }
+
+        if (
+            $measurementType === 'blood_pressure'
+            && ! $hasBloodPressure
+        ) {
+            return [
+                'success' => false,
+                'message' => 'Hasil tekanan darah wajib tersedia.',
+                'measurement_id' => null,
+            ];
+        }
+
+        if (
+            $measurementType === 'both'
+            && ! $hasBloodPressure
+            && ! $hasHeartRate
+        ) {
+            return [
+                'success' => false,
+                'message' => 'Minimal satu hasil pengukuran harus valid.',
+                'measurement_id' => null,
+            ];
+        }
+
+        $beatCount =
+            isset($measurementData['beat_count'])
+            && $measurementData['beat_count'] !== ''
             ? (int) $measurementData['beat_count']
             : null;
 
@@ -301,27 +421,44 @@ class MeasurementModel extends Model
             $map,
             $diastolic,
             $bpm,
-            $beatCount
+            $beatCount,
+            $measurementType
         );
 
         $insertData = [
             'request_id' => $requestId,
-            'patient_id' => (int) $measurementData['patient_id'],
-            'device_record_id' => (int) $measurementData['device_record_id'],
-            'systolic' => round($systolic, 2),
-            'map' => round($map, 2),
-            'diastolic' => round($diastolic, 2),
+            'patient_id' =>
+            (int) $measurementData['patient_id'],
+            'device_record_id' =>
+            (int) $measurementData['device_record_id'],
+            'systolic' =>
+            $systolic !== null
+                ? round($systolic, 2)
+                : null,
+            'map' =>
+            $map !== null
+                ? round($map, 2)
+                : null,
+            'diastolic' =>
+            $diastolic !== null
+                ? round($diastolic, 2)
+                : null,
             'bpm' => $bpm,
             'beat_count' => $beatCount,
             'pressure_baseline_adc'
-            => $measurementData['pressure_baseline_adc'] ?? null,
+            => $measurementData['pressure_baseline_adc']
+                ?? null,
             'adc_max'
-            => $measurementData['adc_max'] ?? null,
+            => $measurementData['adc_max']
+                ?? null,
             'adc_min'
-            => $measurementData['adc_min'] ?? null,
+            => $measurementData['adc_min']
+                ?? null,
             'is_valid' => $quality['is_valid'],
-            'quality_status' => $quality['quality_status'],
-            'failure_reason' => $quality['failure_reason'],
+            'quality_status' =>
+            $quality['quality_status'],
+            'failure_reason' =>
+            $quality['failure_reason'],
             'measured_at'
             => $measurementData['measured_at']
                 ?? date('Y-m-d H:i:s'),
@@ -399,9 +536,12 @@ class MeasurementModel extends Model
                 'success' => true,
                 'message' => 'Hasil pengukuran berhasil disimpan.',
                 'measurement_id' => (int) $measurementId,
-                'quality_status' => $quality['quality_status'],
-                'is_valid' => (bool) $quality['is_valid'],
-                'failure_reason' => $quality['failure_reason'],
+                'quality_status' =>
+                $quality['quality_status'],
+                'is_valid' =>
+                (bool) $quality['is_valid'],
+                'failure_reason' =>
+                $quality['failure_reason'],
             ];
         } catch (Throwable $exception) {
             $database->transRollback();

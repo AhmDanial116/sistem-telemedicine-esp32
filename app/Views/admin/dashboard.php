@@ -1293,6 +1293,39 @@
         <section
             id="patientsSection"
             class="card dashboard-card mb-4 admin-section-card">
+            <?php if (session()->getFlashdata('patient_success')): ?>
+                <div
+                    class="alert alert-success alert-dismissible fade show"
+                    role="alert">
+
+                    <?= esc(
+                        session()->getFlashdata('patient_success')
+                    ) ?>
+
+                    <button
+                        type="button"
+                        class="btn-close"
+                        data-bs-dismiss="alert"
+                        aria-label="Tutup"></button>
+                </div>
+            <?php endif; ?>
+
+            <?php if (session()->getFlashdata('patient_error')): ?>
+                <div
+                    class="alert alert-danger alert-dismissible fade show"
+                    role="alert">
+
+                    <?= esc(
+                        session()->getFlashdata('patient_error')
+                    ) ?>
+
+                    <button
+                        type="button"
+                        class="btn-close"
+                        data-bs-dismiss="alert"
+                        aria-label="Tutup"></button>
+                </div>
+            <?php endif; ?>
             <div class="card-body p-4">
                 <div class="admin-section-header mb-4">
                     <div>
@@ -1305,9 +1338,20 @@
                         </div>
                     </div>
 
-                    <span class="badge rounded-pill text-bg-light border">
-                        <?= count($patients) ?> pasien
-                    </span>
+                    <div class="admin-section-actions">
+                        <button
+                            type="button"
+                            class="btn btn-medical-primary btn-sm"
+                            data-bs-toggle="modal"
+                            data-bs-target="#createPatientModal">
+                            <i class="bi bi-person-plus me-1"></i>
+                            Tambah Pasien
+                        </button>
+
+                        <span class="badge rounded-pill text-bg-light border">
+                            <?= count($patients) ?> pasien
+                        </span>
+                    </div>
                 </div>
 
                 <?php if ($patients === []): ?>
@@ -1859,6 +1903,151 @@
                 <?php endif; ?>
             </div>
         </section>
+
+        <!-- MODAL TAMBAH PASIEN -->
+        <div
+            class="modal fade"
+            id="createPatientModal"
+            tabindex="-1"
+            aria-labelledby="createPatientModalLabel"
+            aria-hidden="true">
+
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+                <div class="modal-content border-0 rounded-4">
+
+                    <form
+                        action="<?= site_url('admin/patient/store') ?>"
+                        method="post">
+
+                        <?= csrf_field() ?>
+
+                        <div class="modal-header border-0">
+                            <h2
+                                class="modal-title fs-5 fw-bold"
+                                id="createPatientModalLabel">
+                                Tambah Pasien
+                            </h2>
+
+                            <button
+                                type="button"
+                                class="btn-close"
+                                data-bs-dismiss="modal"
+                                aria-label="Tutup"></button>
+                        </div>
+
+                        <div class="modal-body pt-0">
+                            <div class="row g-3">
+
+                                <div class="col-12 col-md-4">
+                                    <label class="form-label fw-semibold">
+                                        Kode Pasien
+                                    </label>
+
+                                    <input
+                                        type="text"
+                                        class="form-control text-uppercase"
+                                        name="patient_code"
+                                        maxlength="30"
+                                        placeholder="PAS002"
+                                        required>
+                                </div>
+
+                                <div class="col-12 col-md-8">
+                                    <label class="form-label fw-semibold">
+                                        Nama Pasien
+                                    </label>
+
+                                    <input
+                                        type="text"
+                                        class="form-control"
+                                        name="name"
+                                        maxlength="100"
+                                        placeholder="Nama lengkap pasien"
+                                        required>
+                                </div>
+
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label fw-semibold">
+                                        Tanggal Lahir
+                                    </label>
+
+                                    <input
+                                        type="date"
+                                        class="form-control"
+                                        name="birth_date">
+                                </div>
+
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label fw-semibold">
+                                        Jenis Kelamin
+                                    </label>
+
+                                    <select
+                                        class="form-select"
+                                        name="gender">
+
+                                        <option value="">
+                                            Pilih jenis kelamin
+                                        </option>
+
+                                        <option value="male">
+                                            Laki-laki
+                                        </option>
+
+                                        <option value="female">
+                                            Perempuan
+                                        </option>
+                                    </select>
+                                </div>
+
+                                <div class="col-12">
+                                    <label class="form-label fw-semibold">
+                                        Nomor Telepon
+                                    </label>
+
+                                    <input
+                                        type="text"
+                                        class="form-control"
+                                        name="phone"
+                                        maxlength="20"
+                                        placeholder="08xxxxxxxxxx">
+                                </div>
+
+                                <div class="col-12">
+                                    <label class="form-label fw-semibold">
+                                        Alamat
+                                    </label>
+
+                                    <textarea
+                                        class="form-control"
+                                        name="address"
+                                        rows="3"
+                                        placeholder="Alamat pasien"></textarea>
+                                </div>
+
+                            </div>
+                        </div>
+
+                        <div class="modal-footer border-0">
+                            <button
+                                type="button"
+                                class="btn btn-light"
+                                data-bs-dismiss="modal">
+                                Batal
+                            </button>
+
+                            <button
+                                type="submit"
+                                class="btn btn-primary">
+                                <i class="bi bi-save me-1"></i>
+                                Simpan Pasien
+                            </button>
+                        </div>
+
+                    </form>
+                </div>
+            </div>
+        </div>
         <!-- MODAL TAMBAH DOKTER -->
         <div
             class="modal fade"

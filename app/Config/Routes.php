@@ -157,6 +157,10 @@ $routes->group(
             'device/(:num)/assign',
             'AdminController::assignDevice/$1'
         );
+        $routes->post(
+            'patient/store',
+            'AdminController::storePatient'
+        );
     }
 );
 

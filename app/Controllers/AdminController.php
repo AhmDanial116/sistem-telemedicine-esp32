@@ -619,6 +619,224 @@ class AdminController extends BaseController
             );
     }
 
+    public function storePatient(): RedirectResponse
+    {
+        $adminId = (int) session()->get('admin_id');
+
+        if ($adminId <= 0) {
+            return redirect()
+                ->to('/')
+                ->with(
+                    'identification_error',
+                    'Sesi admin tidak valid.'
+                );
+        }
+
+        $patientCode = strtoupper(
+            trim((string) $this->request->getPost('patient_code'))
+        );
+
+        $name = trim(
+            (string) $this->request->getPost('name')
+        );
+
+        $birthDate = trim(
+            (string) $this->request->getPost('birth_date')
+        );
+
+        $gender = trim(
+            (string) $this->request->getPost('gender')
+        );
+
+        $phone = trim(
+            (string) $this->request->getPost('phone')
+        );
+
+        $address = trim(
+            (string) $this->request->getPost('address')
+        );
+
+        //--------------------------------------------------
+        // Validasi wajib
+        //--------------------------------------------------
+
+        if (
+            $patientCode === ''
+            || $name === ''
+        ) {
+            return redirect()
+                ->back()
+                ->withInput()
+                ->with(
+                    'patient_error',
+                    'Kode pasien dan nama pasien wajib diisi.'
+                );
+        }
+
+        if (
+            strlen($patientCode) > 30
+            || strlen($name) > 100
+        ) {
+            return redirect()
+                ->back()
+                ->withInput()
+                ->with(
+                    'patient_error',
+                    'Kode atau nama pasien melebihi batas karakter.'
+                );
+        }
+
+        //--------------------------------------------------
+        // Validasi gender
+        //--------------------------------------------------
+
+        if (
+            $gender !== ''
+            && ! in_array(
+                $gender,
+                [
+                    'male',
+                    'female',
+                ],
+                true
+            )
+        ) {
+            return redirect()
+                ->back()
+                ->withInput()
+                ->with(
+                    'patient_error',
+                    'Jenis kelamin pasien tidak valid.'
+                );
+        }
+
+        //--------------------------------------------------
+        // Validasi tanggal
+        //--------------------------------------------------
+
+        if ($birthDate !== '') {
+            $date = \DateTime::createFromFormat(
+                'Y-m-d',
+                $birthDate
+            );
+
+            if (
+                $date === false
+                || $date->format('Y-m-d') !== $birthDate
+            ) {
+                return redirect()
+                    ->back()
+                    ->withInput()
+                    ->with(
+                        'patient_error',
+                        'Tanggal lahir pasien tidak valid.'
+                    );
+            }
+        }
+
+        $db = db_connect();
+
+        //--------------------------------------------------
+        // Cek kode pasien duplikat
+        //--------------------------------------------------
+
+        $existingPatient = $db
+            ->table('patients')
+            ->where(
+                'patient_code',
+                $patientCode
+            )
+            ->get()
+            ->getRowArray();
+
+        if ($existingPatient !== null) {
+            return redirect()
+                ->back()
+                ->withInput()
+                ->with(
+                    'patient_error',
+                    'Kode pasien sudah terdaftar.'
+                );
+        }
+
+        //--------------------------------------------------
+        // Simpan pasien
+        //--------------------------------------------------
+
+        $db
+            ->table('patients')
+            ->insert([
+                'patient_code' =>
+                $patientCode,
+
+                'name' =>
+                $name,
+
+                'birth_date' =>
+                $birthDate !== ''
+                    ? $birthDate
+                    : null,
+
+                'gender' =>
+                $gender !== ''
+                    ? $gender
+                    : null,
+
+                'phone' =>
+                $phone !== ''
+                    ? $phone
+                    : null,
+
+                'address' =>
+                $address !== ''
+                    ? $address
+                    : null,
+
+                'status' =>
+                'active',
+            ]);
+
+        $patientId =
+            (int) $db->insertID();
+
+        if ($patientId <= 0) {
+            return redirect()
+                ->back()
+                ->withInput()
+                ->with(
+                    'patient_error',
+                    'Data pasien gagal disimpan.'
+                );
+        }
+
+        //--------------------------------------------------
+        // Activity log
+        //--------------------------------------------------
+
+        $this->activityLogModel->record(
+            'admin',
+            $adminId,
+            'create_patient',
+            sprintf(
+                'Admin menambahkan pasien %s (%s).',
+                $name,
+                $patientCode
+            ),
+            'patient',
+            $patientId,
+            $this->request->getIPAddress()
+        );
+
+        return redirect()
+            ->to(
+                '/admin/dashboard#patientsSection'
+            )
+            ->with(
+                'patient_success',
+                'Data pasien berhasil ditambahkan.'
+            );
+    }
+
     public function updateDoctor(
         int $doctorId
     ): RedirectResponse {

@@ -1671,18 +1671,18 @@
 
                 clearError();
 
-                startButton.disabled = true;
-                measurementType.disabled = true;
-
-                statusSpinner.classList.remove(
-                    'd-none'
-                );
-
-                updateStatusDisplay('pending');
-
                 try {
-                    const formData =
-                        new FormData(form);
+                    // WAJIB dibuat sebelum select di-disable
+                    const formData = new FormData(form);
+
+                    startButton.disabled = true;
+                    measurementType.disabled = true;
+
+                    statusSpinner.classList.remove(
+                        'd-none'
+                    );
+
+                    updateStatusDisplay('pending');
 
                     const response = await fetch(
                         startUrl, {
@@ -1711,6 +1711,7 @@
                         .request_id;
 
                     beginPolling();
+
                 } catch (error) {
                     startButton.disabled = false;
                     measurementType.disabled = false;

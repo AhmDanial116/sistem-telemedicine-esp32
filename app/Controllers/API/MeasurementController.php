@@ -45,34 +45,214 @@ class MeasurementController extends BaseController
             ]);
     }
 
+
+    /**
+     * Membaca body JSON dari ESP32 secara toleran.
+     *
+     * Urutan:
+     * 1. Parser bawaan CodeIgniter.
+     * 2. Raw body setelah BOM/whitespace dibersihkan.
+     * 3. Ambil objek JSON pertama yang seimbang jika ada byte tambahan.
+     */
+    private function parseJsonBody(): array
+    {
+        $rawBody = (string) $this->request->getBody();
+        $frameworkError = null;
+
+        try {
+            $frameworkPayload =
+                $this->request->getJSON(true);
+
+            if (is_array($frameworkPayload)) {
+                return [
+                    'success' => true,
+                    'payload' => $frameworkPayload,
+                    'diagnostic' => null,
+                ];
+            }
+        } catch (Throwable $exception) {
+            $frameworkError = $exception->getMessage();
+        }
+
+        // Hilangkan UTF-8 BOM di awal, NUL/control byte di ujung,
+        // lalu whitespace normal.
+        $cleanBody = preg_replace(
+            '/^\\xEF\\xBB\\xBF/',
+            '',
+            $rawBody
+        );
+
+        if (! is_string($cleanBody)) {
+            $cleanBody = $rawBody;
+        }
+
+        $cleanBody = preg_replace(
+            '/[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F]+$/',
+            '',
+            $cleanBody
+        );
+
+        if (! is_string($cleanBody)) {
+            $cleanBody = $rawBody;
+        }
+
+        $cleanBody = trim($cleanBody);
+
+        $candidates = [];
+
+        if ($cleanBody !== '') {
+            $candidates[] = $cleanBody;
+
+            $jsonObject =
+                $this->extractFirstJsonObject(
+                    $cleanBody
+                );
+
+            if (
+                $jsonObject !== null
+                && $jsonObject !== $cleanBody
+            ) {
+                $candidates[] = $jsonObject;
+            }
+        }
+
+        $lastJsonError = 'Body kosong.';
+
+        foreach ($candidates as $candidate) {
+            $decoded = json_decode(
+                $candidate,
+                true,
+                512,
+                JSON_BIGINT_AS_STRING
+                    | JSON_INVALID_UTF8_SUBSTITUTE
+            );
+
+            if (
+                json_last_error() === JSON_ERROR_NONE
+                && is_array($decoded)
+            ) {
+                return [
+                    'success' => true,
+                    'payload' => $decoded,
+                    'diagnostic' => null,
+                ];
+            }
+
+            $lastJsonError = json_last_error_msg();
+        }
+
+        $rawLength = strlen($rawBody);
+        $prefix = substr($rawBody, 0, 80);
+        $suffix = $rawLength > 80
+            ? substr($rawBody, -80)
+            : $rawBody;
+
+        return [
+            'success' => false,
+            'payload' => null,
+            'diagnostic' => [
+                'json_error' => $lastJsonError,
+                'framework_error' => $frameworkError,
+                'content_type' =>
+                $this->request->getHeaderLine(
+                    'Content-Type'
+                ),
+                'content_length_header' =>
+                $this->request->getHeaderLine(
+                    'Content-Length'
+                ),
+                'raw_length' => $rawLength,
+                'raw_prefix_hex' => bin2hex($prefix),
+                'raw_suffix_hex' => bin2hex($suffix),
+            ],
+        ];
+    }
+
+    /**
+     * Mengambil objek JSON pertama yang lengkap dari sebuah string.
+     * Berguna bila proxy/client menyisakan byte tambahan setelah JSON.
+     */
+    private function extractFirstJsonObject(
+        string $text
+    ): ?string {
+        $start = strpos($text, '{');
+
+        if ($start === false) {
+            return null;
+        }
+
+        $depth = 0;
+        $inString = false;
+        $escaped = false;
+        $length = strlen($text);
+
+        for ($i = $start; $i < $length; $i++) {
+            $char = $text[$i];
+
+            if ($inString) {
+                if ($escaped) {
+                    $escaped = false;
+                    continue;
+                }
+
+                if ($char === '\\\\') {
+                    $escaped = true;
+                    continue;
+                }
+
+                if ($char === '"') {
+                    $inString = false;
+                }
+
+                continue;
+            }
+
+            if ($char === '"') {
+                $inString = true;
+                continue;
+            }
+
+            if ($char === '{') {
+                $depth++;
+                continue;
+            }
+
+            if ($char === '}') {
+                $depth--;
+
+                if ($depth === 0) {
+                    return substr(
+                        $text,
+                        $start,
+                        $i - $start + 1
+                    );
+                }
+            }
+        }
+
+        return null;
+    }
+
     /**
      * POST /api/v1/measurement/upload
      */
     public function upload(): ResponseInterface
     {
         try {
-            $rawBody = trim(
-                $this->request->getBody(),
-                "\xEF\xBB\xBF\x00\x09\x0A\x0D\x20"
-            );
+            $parsedBody =
+                $this->parseJsonBody();
 
-            $payload = json_decode($rawBody, true);
-
-            if (
-                json_last_error() !== JSON_ERROR_NONE
-                || ! is_array($payload)
-            ) {
+            if (! $parsedBody['success']) {
                 return $this->apiResponse(
                     false,
                     'Body request JSON tidak dapat dibaca.',
                     null,
-                    [
-                        'json_error' =>
-                        json_last_error_msg(),
-                    ],
+                    $parsedBody['diagnostic'],
                     400
                 );
             }
+
+            $payload = $parsedBody['payload'];
 
             $requestId =
                 isset($payload['request_id'])

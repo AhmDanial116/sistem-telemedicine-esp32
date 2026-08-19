@@ -22,6 +22,7 @@ class MeasurementRequestModel extends Model
         'device_record_id',
         'requested_by_role',
         'requested_by_id',
+        'measurement_type',
         'status',
         'requested_at',
         'acknowledged_at',
@@ -66,6 +67,11 @@ class MeasurementRequestModel extends Model
         'requested_by_id' => [
             'label' => 'ID peminta',
             'rules' => 'permit_empty|is_natural_no_zero',
+        ],
+
+        'measurement_type' => [
+            'label' => 'Jenis pengukuran',
+            'rules' => 'required|in_list[heart_rate,blood_pressure,both]',
         ],
 
         'status' => [
@@ -161,6 +167,7 @@ class MeasurementRequestModel extends Model
         int $deviceRecordId,
         string $requestedByRole,
         ?int $requestedById = null,
+        string $measurementType = 'both',
         int $expirationMinutes = 5
     ): array {
         if ($expirationMinutes < 1) {
@@ -171,6 +178,25 @@ class MeasurementRequestModel extends Model
             return [
                 'success' => false,
                 'message' => 'Perangkat masih memiliki request pengukuran aktif.',
+                'request_id' => null,
+                'request_code' => null,
+            ];
+        }
+
+        $validMeasurementTypes = [
+            'heart_rate',
+            'blood_pressure',
+            'both',
+        ];
+
+        if (! in_array(
+            $measurementType,
+            $validMeasurementTypes,
+            true
+        )) {
+            return [
+                'success' => false,
+                'message' => 'Jenis pengukuran tidak valid.',
                 'request_id' => null,
                 'request_code' => null,
             ];
@@ -191,6 +217,7 @@ class MeasurementRequestModel extends Model
             'device_record_id' => $deviceRecordId,
             'requested_by_role' => $requestedByRole,
             'requested_by_id' => $requestedById,
+            'measurement_type' => $measurementType,
             'status' => 'pending',
             'requested_at' => $now,
             'expired_at' => $expiredAt,
@@ -260,6 +287,7 @@ class MeasurementRequestModel extends Model
                 'measurement_requests.device_record_id',
                 'measurement_requests.requested_by_role',
                 'measurement_requests.requested_by_id',
+                'measurement_requests.measurement_type',
                 'measurement_requests.status',
                 'measurement_requests.requested_at',
                 'measurement_requests.expired_at',

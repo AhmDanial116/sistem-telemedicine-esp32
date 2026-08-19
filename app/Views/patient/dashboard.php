@@ -449,13 +449,42 @@
                             </div>
 
                             <div class="small opacity-75 mt-1">
-                                Pastikan jari menutupi sensor MAX30102,
-                                lalu pasang manset pada lengan dengan benar.
+                                Pilih jenis pengukuran yang ingin dilakukan.
+                                Ikuti petunjuk sensor sesuai pilihan pengukuran.
                             </div>
                         </div>
 
                         <form id="measurementForm">
                             <?= csrf_field() ?>
+
+                            <div class="mb-3">
+                                <label
+                                    for="measurementType"
+                                    class="form-label fw-semibold text-white">
+                                    Jenis Pengukuran
+                                </label>
+
+                                <select
+                                    id="measurementType"
+                                    name="measurement_type"
+                                    class="form-select"
+                                    required>
+                                    <option value="both" selected>
+                                        Denyut Nadi + Tekanan Darah
+                                    </option>
+                                    <option value="heart_rate">
+                                        Denyut Nadi Saja
+                                    </option>
+                                    <option value="blood_pressure">
+                                        Tekanan Darah Saja
+                                    </option>
+                                </select>
+
+                                <div class="small opacity-75 mt-2">
+                                    Pengukuran dapat dilakukan secara terpisah
+                                    atau keduanya dalam satu permintaan.
+                                </div>
+                            </div>
 
                             <button
                                 type="submit"
@@ -1324,6 +1353,11 @@
                 'startMeasurementButton'
             );
 
+        const measurementType =
+            document.getElementById(
+                'measurementType'
+            );
+
         const statusBox =
             document.getElementById(
                 'measurementStatusBox'
@@ -1564,6 +1598,7 @@
                     );
 
                     startButton.disabled = false;
+                    measurementType.disabled = false;
 
                     updateLatestMeasurement(
                         result.data.measurement
@@ -1596,6 +1631,7 @@
                     );
 
                     startButton.disabled = false;
+                    measurementType.disabled = false;
 
                     currentRequestId = null;
 
@@ -1609,6 +1645,7 @@
                 pollingTimer = null;
 
                 startButton.disabled = false;
+                measurementType.disabled = false;
 
                 showError(error.message);
             }
@@ -1635,6 +1672,7 @@
                 clearError();
 
                 startButton.disabled = true;
+                measurementType.disabled = true;
 
                 statusSpinner.classList.remove(
                     'd-none'
@@ -1675,6 +1713,7 @@
                     beginPolling();
                 } catch (error) {
                     startButton.disabled = false;
+                    measurementType.disabled = false;
 
                     statusSpinner.classList.add(
                         'd-none'
@@ -1691,6 +1730,7 @@
          */
         if (currentRequestId) {
             startButton.disabled = true;
+            measurementType.disabled = true;
             updateStatusDisplay('pending');
             beginPolling();
         }

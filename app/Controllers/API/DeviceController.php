@@ -209,6 +209,9 @@ class DeviceController extends BaseController
                         'request_code' =>
                         $pendingRequest['request_code'],
 
+                        'measurement_type' =>
+                        $pendingRequest['measurement_type'],
+
                         'patient_id' =>
                         (int) $pendingRequest['patient_id'],
 

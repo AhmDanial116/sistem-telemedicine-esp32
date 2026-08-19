@@ -379,6 +379,34 @@ class PatientController extends BaseController
     public function startMeasurement(): ResponseInterface
     {
         try {
+            $measurementType = trim(
+                (string) $this->request->getPost(
+                    'measurement_type'
+                )
+            );
+
+            $validMeasurementTypes = [
+                'heart_rate',
+                'blood_pressure',
+                'both',
+            ];
+
+            if (! in_array(
+                $measurementType,
+                $validMeasurementTypes,
+                true
+            )) {
+                return $this->jsonResponse(
+                    false,
+                    'Jenis pengukuran tidak valid.',
+                    null,
+                    [
+                        'measurement_type' =>
+                        'Pilih jenis pengukuran yang tersedia.',
+                    ],
+                    422
+                );
+            }
             $patientId =
                 (int) session()->get(
                     'patient_id'
@@ -446,6 +474,7 @@ class PatientController extends BaseController
                     $deviceRecordId,
                     'patient',
                     $patientId,
+                    $measurementType,
                     5
                 );
 
@@ -481,6 +510,9 @@ class PatientController extends BaseController
 
                         'request_code' =>
                         $request['request_code'],
+
+                        'measurement_type' =>
+                        $request['measurement_type'],
 
                         'status' =>
                         $request['status'],
@@ -576,6 +608,9 @@ class PatientController extends BaseController
 
                     'request_code' =>
                     $request['request_code'],
+
+                    'measurement_type' =>
+                    $request['measurement_type'],
 
                     'status' =>
                     $request['status'],

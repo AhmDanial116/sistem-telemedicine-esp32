@@ -8,6 +8,7 @@ use App\Models\NotificationModel;
 use App\Models\MeasurementModel;
 use App\Models\MeasurementRequestModel;
 use App\Models\DoctorAssignmentModel;
+use App\Services\TelegramService;
 use CodeIgniter\HTTP\ResponseInterface;
 use Throwable;
 
@@ -563,17 +564,16 @@ class MeasurementController extends BaseController
                 );
 
             /*
-             * Notifikasi dashboard dokter tetap dibuat
-             * jika quality_status warning/invalid.
-             * Pesan disusun berdasarkan parameter yang tersedia.
+             * Notifikasi hanya untuk parameter yang:
+             * 1. memang berhasil/valid, dan
+             * 2. berada pada kondisi warning.
+             *
+             * Parameter yang tidak dipilih, gagal, atau invalid
+             * tidak dikirim sebagai notifikasi.
              */
             if (
                 $measurement !== null
-                && in_array(
-                    $measurement['quality_status'],
-                    ['warning', 'invalid'],
-                    true
-                )
+                && $result['quality_status'] === 'warning'
             ) {
                 $patientId =
                     (int) $measurement['patient_id'];
@@ -604,66 +604,106 @@ class MeasurementController extends BaseController
                     $patient !== null
                     && $assignment !== null
                 ) {
-                    $parts = [];
+                    $warningParts = [];
 
                     if (
-                        $measurement['systolic'] !== null
+                        ($result['blood_pressure_valid'] ?? false)
+                        && ($result['blood_pressure_warning'] ?? false)
+                        && $measurement['systolic'] !== null
                         && $measurement['diastolic'] !== null
                     ) {
-                        $parts[] = sprintf(
-                            'tekanan darah %.2f/%.2f mmHg',
+                        $warningParts[] = sprintf(
+                            'Tekanan darah: %.2f/%.2f mmHg (MAP %.2f mmHg)',
                             (float) $measurement['systolic'],
-                            (float) $measurement['diastolic']
+                            (float) $measurement['diastolic'],
+                            (float) $measurement['map']
                         );
                     }
 
-                    if ($measurement['bpm'] !== null) {
-                        $parts[] = sprintf(
-                            'denyut nadi %d BPM',
+                    if (
+                        ($result['heart_rate_valid'] ?? false)
+                        && ($result['heart_rate_warning'] ?? false)
+                        && $measurement['bpm'] !== null
+                    ) {
+                        $warningParts[] = sprintf(
+                            'Denyut nadi: %d BPM',
                             (int) $measurement['bpm']
                         );
                     }
 
-                    $notificationTitle =
-                        $measurement['quality_status']
-                        === 'invalid'
-                        ? 'Hasil Pengukuran Tidak Valid'
-                        : 'Hasil Pengukuran Perlu Perhatian';
+                    /*
+                     * Harus ada minimal satu parameter valid
+                     * yang benar-benar warning.
+                     */
+                    if ($warningParts !== []) {
+                        $notificationTitle =
+                            'Hasil Pengukuran Perlu Perhatian';
 
-                    $notificationMessage = sprintf(
-                        '%s (%s) memperoleh %s.',
-                        (string) $patient['name'],
-                        (string) $patient['patient_code'],
-                        $parts !== []
-                            ? implode(' dan ', $parts)
-                            : 'hasil pengukuran yang perlu ditinjau'
-                    );
+                        $notificationMessage = sprintf(
+                            '%s (%s) memiliki %s.',
+                            (string) $patient['name'],
+                            (string) $patient['patient_code'],
+                            implode(
+                                ' dan ',
+                                array_map(
+                                    static fn(string $part): string =>
+                                    lcfirst($part),
+                                    $warningParts
+                                )
+                            )
+                        );
 
-                    $notificationModel =
-                        new NotificationModel();
+                        /* Notifikasi internal dashboard dokter. */
+                        $notificationModel =
+                            new NotificationModel();
 
-                    $notificationModel
-                        ->createNotification([
-                            'recipient_role' => 'doctor',
-                            'recipient_id' =>
-                            (int) $assignment['doctor_id'],
-                            'title' =>
-                            $notificationTitle,
-                            'message' =>
-                            $notificationMessage,
-                            'type' =>
-                            $measurement['quality_status']
-                                === 'invalid'
-                                ? 'danger'
-                                : 'warning',
-                            'reference_type' =>
-                            'measurement',
-                            'reference_id' =>
-                            (int) $measurement['id'],
-                            'action_url' =>
-                            '/doctor/patient/'
-                                . $patientId,
-                        ]);
+                        $notificationModel
+                            ->createNotification([
+                                'recipient_role' => 'doctor',
+                                'recipient_id' =>
+                                (int) $assignment['doctor_id'],
+                                'title' =>
+                                $notificationTitle,
+                                'message' =>
+                                $notificationMessage,
+                                'type' => 'warning',
+                                'reference_type' =>
+                                'measurement',
+                                'reference_id' =>
+                                (int) $measurement['id'],
+                                'action_url' =>
+                                '/doctor/patient/'
+                                    . $patientId,
+                            ]);
+
+                        /* Push notification Telegram. */
+                        $telegramLines = [
+                            '⚠️ HASIL PENGUKURAN PERLU PERHATIAN',
+                            '',
+                            'Pasien: '
+                                . (string) $patient['name'],
+                            'Kode: '
+                                . (string) $patient['patient_code'],
+                            'Jenis pengukuran: '
+                                . $measurementType,
+                            '',
+                        ];
+
+                        foreach ($warningParts as $part) {
+                            $telegramLines[] = '• ' . $part;
+                        }
+
+                        $telegramLines[] = '';
+                        $telegramLines[] =
+                            'Silakan tinjau hasil pada sistem Telemedicine.';
+
+                        $telegramService =
+                            new TelegramService();
+
+                        $telegramService->sendMessage(
+                            implode("\n", $telegramLines)
+                        );
+                    }
                 }
             }
 

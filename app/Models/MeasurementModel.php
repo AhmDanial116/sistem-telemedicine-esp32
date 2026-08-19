@@ -171,104 +171,172 @@ class MeasurementModel extends Model
         ?int $beatCount = null,
         string $measurementType = 'both'
     ): array {
-        $reasons = [];
+        $wantsBloodPressure = in_array(
+            $measurementType,
+            ['blood_pressure', 'both'],
+            true
+        );
+
+        $wantsHeartRate = in_array(
+            $measurementType,
+            ['heart_rate', 'both'],
+            true
+        );
 
         $hasBloodPressure =
             $systolic !== null
             && $map !== null
             && $diastolic !== null;
 
-        $hasHeartRate =
-            $bpm !== null;
+        $hasHeartRate = $bpm !== null;
 
-        if (! $hasBloodPressure && ! $hasHeartRate) {
-            return [
-                'is_valid' => 0,
-                'quality_status' => 'invalid',
-                'failure_reason' => 'no_valid_measurement',
-            ];
-        }
+        $bloodPressureReasons = [];
+        $heartRateReasons = [];
 
         /*
-         * Validasi teknis hanya dilakukan untuk
-         * parameter yang benar-benar tersedia.
+         * Validitas teknis dinilai per kelompok parameter.
+         * Parameter yang tidak dipilih tidak dianggap gagal.
          */
-        if ($hasBloodPressure) {
-            if (! ($systolic > $map && $map > $diastolic)) {
-                $reasons[] = 'sys_map_dia_order_invalid';
-            }
+        if ($wantsBloodPressure) {
+            if (! $hasBloodPressure) {
+                $bloodPressureReasons[] =
+                    'blood_pressure_unavailable';
+            } else {
+                if (! ($systolic > $map && $map > $diastolic)) {
+                    $bloodPressureReasons[] =
+                        'sys_map_dia_order_invalid';
+                }
 
-            if ($systolic < 70 || $systolic > 250) {
-                $reasons[] = 'systolic_out_of_range';
-            }
+                if ($systolic < 70 || $systolic > 250) {
+                    $bloodPressureReasons[] =
+                        'systolic_out_of_range';
+                }
 
-            if ($map < 40 || $map > 200) {
-                $reasons[] = 'map_out_of_range';
-            }
+                if ($map < 40 || $map > 200) {
+                    $bloodPressureReasons[] =
+                        'map_out_of_range';
+                }
 
-            if ($diastolic < 40 || $diastolic > 150) {
-                $reasons[] = 'diastolic_out_of_range';
-            }
+                if ($diastolic < 40 || $diastolic > 150) {
+                    $bloodPressureReasons[] =
+                        'diastolic_out_of_range';
+                }
 
-            if ($beatCount !== null && $beatCount < 5) {
-                $reasons[] = 'insufficient_beats';
+                if ($beatCount !== null && $beatCount < 5) {
+                    $bloodPressureReasons[] =
+                        'insufficient_beats';
+                }
             }
         }
 
-        if ($hasHeartRate) {
-            if ($bpm < 40 || $bpm > 200) {
-                $reasons[] = 'bpm_out_of_range';
+        if ($wantsHeartRate) {
+            if (! $hasHeartRate) {
+                $heartRateReasons[] =
+                    'heart_rate_unavailable';
+            } elseif ($bpm < 40 || $bpm > 200) {
+                $heartRateReasons[] =
+                    'bpm_out_of_range';
             }
         }
 
-        if ($reasons !== []) {
-            return [
-                'is_valid' => 0,
-                'quality_status' => 'invalid',
-                'failure_reason' => implode(',', $reasons),
-            ];
-        }
+        $bloodPressureValid =
+            $wantsBloodPressure
+            && $hasBloodPressure
+            && $bloodPressureReasons === [];
 
-        $warning = false;
-        $partialReason = null;
+        $heartRateValid =
+            $wantsHeartRate
+            && $hasHeartRate
+            && $heartRateReasons === [];
 
         /*
-         * Warning medis hanya untuk parameter
-         * yang tersedia, bukan diagnosis.
+         * Warning hanya boleh berasal dari parameter yang valid.
+         * Parameter gagal/invalid tidak menjadi pemicu notifikasi.
          */
-        if (
-            $hasBloodPressure
+        $bloodPressureWarning =
+            $bloodPressureValid
             && (
                 $systolic >= 140
                 || $diastolic >= 90
                 || $systolic < 90
                 || $diastolic < 60
-            )
-        ) {
-            $warning = true;
+            );
+
+        $heartRateWarning =
+            $heartRateValid
+            && ($bpm < 60 || $bpm > 100);
+
+        if ($measurementType === 'heart_rate') {
+            if (! $heartRateValid) {
+                return [
+                    'is_valid' => 0,
+                    'quality_status' => 'invalid',
+                    'failure_reason' => implode(
+                        ',',
+                        $heartRateReasons
+                    ),
+                    'blood_pressure_valid' => false,
+                    'heart_rate_valid' => false,
+                    'blood_pressure_warning' => false,
+                    'heart_rate_warning' => false,
+                ];
+            }
+        } elseif ($measurementType === 'blood_pressure') {
+            if (! $bloodPressureValid) {
+                return [
+                    'is_valid' => 0,
+                    'quality_status' => 'invalid',
+                    'failure_reason' => implode(
+                        ',',
+                        $bloodPressureReasons
+                    ),
+                    'blood_pressure_valid' => false,
+                    'heart_rate_valid' => false,
+                    'blood_pressure_warning' => false,
+                    'heart_rate_warning' => false,
+                ];
+            }
+        } else {
+            /*
+             * Mode both: minimal satu kelompok parameter harus valid.
+             * Kelompok yang gagal disimpan sebagai informasi partial,
+             * tetapi tidak otomatis membuat status warning.
+             */
+            if (! $bloodPressureValid && ! $heartRateValid) {
+                $reasons = array_merge(
+                    $bloodPressureReasons,
+                    $heartRateReasons
+                );
+
+                return [
+                    'is_valid' => 0,
+                    'quality_status' => 'invalid',
+                    'failure_reason' => $reasons !== []
+                        ? implode(',', $reasons)
+                        : 'no_valid_measurement',
+                    'blood_pressure_valid' => false,
+                    'heart_rate_valid' => false,
+                    'blood_pressure_warning' => false,
+                    'heart_rate_warning' => false,
+                ];
+            }
         }
 
-        if (
-            $hasHeartRate
-            && ($bpm < 60 || $bpm > 100)
-        ) {
-            $warning = true;
-        }
+        $warning =
+            $bloodPressureWarning
+            || $heartRateWarning;
 
-        /*
-         * Jika user memilih "both" namun hanya
-         * satu kelompok parameter berhasil,
-         * simpan hasil yang valid sebagai partial result.
-         */
+        $partialReasons = [];
+
         if ($measurementType === 'both') {
-            if (! $hasBloodPressure && $hasHeartRate) {
-                $warning = true;
-                $partialReason =
-                    'partial_result_blood_pressure_unavailable';
-            } elseif ($hasBloodPressure && ! $hasHeartRate) {
-                $warning = true;
-                $partialReason =
-                    'partial_result_bpm_unavailable';
+            if (! $bloodPressureValid) {
+                $partialReasons[] =
+                    'partial_result_blood_pressure_unavailable_or_invalid';
+            }
+
+            if (! $heartRateValid) {
+                $partialReasons[] =
+                    'partial_result_bpm_unavailable_or_invalid';
             }
         }
 
@@ -276,7 +344,13 @@ class MeasurementModel extends Model
             'is_valid' => 1,
             'quality_status' =>
             $warning ? 'warning' : 'valid',
-            'failure_reason' => $partialReason,
+            'failure_reason' => $partialReasons !== []
+                ? implode(',', $partialReasons)
+                : null,
+            'blood_pressure_valid' => $bloodPressureValid,
+            'heart_rate_valid' => $heartRateValid,
+            'blood_pressure_warning' => $bloodPressureWarning,
+            'heart_rate_warning' => $heartRateWarning,
         ];
     }
 
@@ -542,6 +616,14 @@ class MeasurementModel extends Model
                 (bool) $quality['is_valid'],
                 'failure_reason' =>
                 $quality['failure_reason'],
+                'blood_pressure_valid' =>
+                (bool) ($quality['blood_pressure_valid'] ?? false),
+                'heart_rate_valid' =>
+                (bool) ($quality['heart_rate_valid'] ?? false),
+                'blood_pressure_warning' =>
+                (bool) ($quality['blood_pressure_warning'] ?? false),
+                'heart_rate_warning' =>
+                (bool) ($quality['heart_rate_warning'] ?? false),
             ];
         } catch (Throwable $exception) {
             $database->transRollback();

@@ -203,3 +203,8 @@ $routes->group(
         );
     }
 );
+
+$routes->get(
+    'telegram-test',
+    'TelegramTestController::index'
+);

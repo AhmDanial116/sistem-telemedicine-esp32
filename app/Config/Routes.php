@@ -203,28 +203,3 @@ $routes->group(
         );
     }
 );
-
-$routes->get(
-    'telegram-test',
-    'TelegramTestController::index'
-);
-
-$routes->get(
-    'telegram-test',
-    'TelegramTestController::index'
-);
-
-$routes->get(
-    'telegram-test/heart-rate',
-    'TelegramTestController::heartRate'
-);
-
-$routes->get(
-    'telegram-test/blood-pressure',
-    'TelegramTestController::bloodPressure'
-);
-
-$routes->get(
-    'telegram-test/both',
-    'TelegramTestController::both'
-);
